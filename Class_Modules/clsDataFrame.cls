@@ -780,6 +780,7 @@ Public Function Filter(ByVal filterStr As String) As clsDataFrame
         Exit Function
     End If
 
+    If filterStr = vbNullString Then pandasRaiseError "Filter", PANDAS_ERROR_EVALUATE_SYNTAX, "*** expression is blank ***"
     Dim arrRpnExpression As Variant: arrRpnExpression = getArrRpnNotation(getArrTokenizedStr(filterStr))
     
     Dim keep() As Boolean: keep = evalRpnColumns(arrRpnExpression, n)
@@ -1191,7 +1192,7 @@ Private Function pandasGetErrorInfo(ByVal procedureName As String, ByVal errID A
         
         Case PANDAS_ERROR_EVALUATE_SYNTAX
             errDescription = "Invalid syntax entered in the math expression! Error: " & additionalComment
-            errResolution = "Ensure expression follows PEMDAS, has any literals for comparison enclosed in (""""), and column names enclosed in ('), and functions written as plain text."
+            errResolution = "Ensure expression follows PEMDAS, has any literals for comparison enclosed in (" & Chr(34) & "), and column names enclosed in ('), and functions written as plain text."
         
         Case PANDAS_ERROR_INVALID_ARITH_TYPES
             errDescription = "Invalid operation between parameters! " & additionalComment
