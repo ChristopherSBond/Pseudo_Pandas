@@ -531,7 +531,6 @@ End Function
 '       clsDataFrame with only the selected rows and columns
 '---------------------------------------------------------------------------------
 Public Function SelectVals(Optional ByVal rows As Variant, Optional ByVal cols As Variant) As clsDataFrame
-Attribute SelectVals.VB_UserMemId = 0
     Dim rowIdxs As String
     
     If IsMissing(rows) Then
@@ -780,7 +779,6 @@ Public Function Filter(ByVal filterStr As String) As clsDataFrame
         Exit Function
     End If
 
-    If filterStr = vbNullString Then pandasRaiseError "Filter", PANDAS_ERROR_EVALUATE_SYNTAX, "*** expression is blank ***"
     Dim arrRpnExpression As Variant: arrRpnExpression = getArrRpnNotation(getArrTokenizedStr(filterStr))
     
     Dim keep() As Boolean: keep = evalRpnColumns(arrRpnExpression, n)
@@ -1334,6 +1332,9 @@ Private Function getArrTokenizedStr(ByVal expression As String) As Variant
 nextChar:
         cIdx = cIdx + 1
     Loop
+    
+    If stackPtr < 1 Then pandasRaiseError "getArrTokenizedStr", PANDAS_ERROR_EVALUATE_SYNTAX, _
+        "Invalid expression: " & Chr(34) & expression & Chr(34)
     
     ReDim Preserve arrStackTokenizedStr(0 To stackPtr - 1)
     
@@ -2823,5 +2824,6 @@ Private Function splitAtAssignment(ByVal expression As String) As Variant
     splitAtAssignment = Array(leftStr, rightStr)
     
 End Function
+
 
 
