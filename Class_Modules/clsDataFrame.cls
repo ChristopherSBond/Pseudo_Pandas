@@ -15,10 +15,6 @@ Option Explicit
 '' ***   GitHub Link: https://github.com/ChristopherSBond/Pseudo_Pandas         ***
 ''*********************************************************************************
 
-' Set to false if you want to see what line code errors on
-' Otherwise, all errors will go through error handling routines
-Private Const debugMode As Boolean = True
-
 ' Pandas specific values
 Private Const PANDAS_VALUES_ERROR As Variant = Null
 Private Const PANDAS_VALUES_FORBIDDEN_COL_CHARS As String = "'\""" ' characters that cannot exist in column names
@@ -160,7 +156,7 @@ Public Sub FromRange(ByVal rng As Range, Optional ByVal headers As Boolean = Tru
             arrColData = getArr1dFromRng(rng.Cells(1, colNum).Resize(rng.rows.count))
         End If
             
-        If Not debugMode And dict_df.Exists(headerName) Then pandasRaiseError "fromRange", PANDAS_ERROR_COL_EXISTS_TWICE, headerName
+        If dict_df.Exists(headerName) Then pandasRaiseError "fromRange", PANDAS_ERROR_COL_EXISTS_TWICE, headerName
         
         dict_df.Add headerName, getArrWithNormalizedMissing(arrColData)
         dict_col_types.Add headerName, getArrayDataType(arrColData)
@@ -347,9 +343,9 @@ Public Function SelectCols(ParamArray colIdxs() As Variant) As clsDataFrame
             Dim lastCol As Variant: lastCol = split(colIdx, ":")(1)
             
             If Not IsNumeric(firstCol) Then
-                If Not debugMode And dict_df.Exists(firstCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, firstCol
+                If dict_df.Exists(firstCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, firstCol
                 
-                If Not debugMode And dict_df.Exists(lastCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, lastCol
+                If dict_df.Exists(lastCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, lastCol
                 
                 ' Get the index of the header instead of the column name
                 firstCol = getIndexOfDictKey(dict_df, firstCol)
@@ -1264,7 +1260,7 @@ Private Function getArrTokenizedStr(ByVal expression As String) As Variant
             Dim inSingleQuotes As Boolean: inSingleQuotes = True
             Do While inSingleQuotes
                 ' Triggers if there's a mismatched "'"
-                If Not debugMode And cIdx = Len(expression) Then pandasRaiseError "getArrTokenizedStr", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched (')!"
+                If cIdx >= Len(expression) Then pandasRaiseError "getArrTokenizedStr", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched (')! " & expression
                 
                 token = token & currChar
                 
@@ -1284,7 +1280,7 @@ Private Function getArrTokenizedStr(ByVal expression As String) As Variant
             Dim inDoubleQuotes As Boolean: inDoubleQuotes = True
             Do While inDoubleQuotes
                 ' Triggers if there's a mismatched """"
-                If Not debugMode And cIdx = Len(expression) Then pandasRaiseError "getArrTokenizedStr", PANDAS_ERROR_EVALUATE_SYNTAX, "Mistmatched ("""")!"
+                If cIdx >= Len(expression) Then pandasRaiseError "getArrTokenizedStr", PANDAS_ERROR_EVALUATE_SYNTAX, "Mistmatched ("""")! " & expression
                 
                 token = token & currChar
                 
@@ -1334,7 +1330,7 @@ nextChar:
     Loop
     
     If stackPtr < 1 Then pandasRaiseError "getArrTokenizedStr", PANDAS_ERROR_EVALUATE_SYNTAX, _
-        "Invalid expression: " & Chr(34) & expression & Chr(34)
+        "General syntax issues in " & Chr(34) & expression & Chr(34)
     
     ReDim Preserve arrStackTokenizedStr(0 To stackPtr - 1)
     
@@ -1381,14 +1377,14 @@ Private Function getArrRpnNotation(ByRef tokens As Variant) As Variant
                     If opArr(opPtr - 1) = "(" Then Exit Do
                     pushArrStack outArr, outPtr, popArrStack(opArr, opPtr)
                 Loop
-                If opPtr = 0 Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched ""(""!"
+                If opPtr = 0 Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched ""("" in " & Chr(34) & Join(tokens) & Chr(34)
 
             Case token = ")"
                 Do While opPtr > 0
                     If opArr(opPtr - 1) = "(" Then Exit Do
                     pushArrStack outArr, outPtr, popArrStack(opArr, opPtr)
                 Loop
-                If opPtr = 0 Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched "")""! "
+                If opPtr = 0 Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched "")""! in " & Chr(34) & Join(tokens) & Chr(34)
                 
                 ' Discard the "("
                 popArrStack opArr, opPtr
@@ -1420,11 +1416,11 @@ Private Function getArrRpnNotation(ByRef tokens As Variant) As Variant
     Next idx
 
     Do While opPtr > 0
-        If opArr(opPtr - 1) = "(" Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched ""(""! "
+        If opArr(opPtr - 1) = "(" Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "Mismatched ""(""! in " & Chr(34) & Join(tokens) & Chr(34)
         pushArrStack outArr, outPtr, popArrStack(opArr, opPtr)
     Loop
 
-    If outPtr = 0 Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "General syntax issues."
+    If outPtr = 0 Then pandasRaiseError "getArrRpnNotation", PANDAS_ERROR_EVALUATE_SYNTAX, "General syntax issues in " & Chr(34) & Join(tokens) & Chr(34)
     ReDim Preserve outArr(0 To outPtr - 1)
     getArrRpnNotation = outArr
 End Function
@@ -1713,7 +1709,7 @@ Private Function evalRpnColumns(ByRef arrRpnExpression As Variant, ByVal n As Lo
         End If
     Next i
 
-    If sp <> 1 Then pandasRaiseError "evalRpnColumns", PANDAS_ERROR_EVALUATE_SYNTAX, "General syntax issues."
+    If sp <> 1 Then pandasRaiseError "evalRpnColumns", PANDAS_ERROR_EVALUATE_SYNTAX, "General syntax issues in expression"
     
     evalRpnColumns = stack(0)
 End Function
