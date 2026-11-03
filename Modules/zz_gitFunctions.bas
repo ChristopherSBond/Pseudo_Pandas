@@ -150,7 +150,7 @@ nextIter:
     Next subfolder
     
     ' When all subfolders have been looped thru, and folderPath = the original folder path (subfolder.count>0), exit sub
-    If fso.GetFolder(folderPath).SubFolders.count > 0 Then Exit Sub
+    If fso.GetFolder(folderPath).SubFolders.Count > 0 Then Exit Sub
     
     Dim file As file
     For Each file In fso.GetFolder(folderPath).Files

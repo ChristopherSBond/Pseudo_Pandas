@@ -141,7 +141,7 @@ Public Sub FromRange(ByVal rng As Range, Optional ByVal headers As Boolean = Tru
     Set dict_col_types = New Scripting.Dictionary
     
     Dim colNum As Long
-    For colNum = 1 To rng.Columns.count
+    For colNum = 1 To rng.Columns.Count
         Dim headerName As String
         Dim arrColData As Variant
         
@@ -150,10 +150,10 @@ Public Sub FromRange(ByVal rng As Range, Optional ByVal headers As Boolean = Tru
             
             If Not isValidColumnName(headerName) Then pandasRaiseError "fromRange", PANDAS_ERROR_COL_HAS_FORBIDDEN_CHARS, headerName
             
-            arrColData = getArr1dFromRng(rng.Cells(1, colNum).Offset(1).Resize(rng.rows.count - 1))
+            arrColData = getArr1dFromRng(rng.Cells(1, colNum).Offset(1).Resize(rng.rows.Count - 1))
         Else
             headerName = "Col_" & colNum
-            arrColData = getArr1dFromRng(rng.Cells(1, colNum).Resize(rng.rows.count))
+            arrColData = getArr1dFromRng(rng.Cells(1, colNum).Resize(rng.rows.Count))
         End If
             
         If dict_df.Exists(headerName) Then pandasRaiseError "fromRange", PANDAS_ERROR_COL_EXISTS_TWICE, headerName
@@ -513,10 +513,13 @@ Private Function hasNonNumericChar(ByVal s As String, Optional ByVal allowComma 
         End If
     Next i
 End Function
+
 '************************************************************************************************************************
 ' selectVals
 '   Purpose:
-'       Gets a dataframe of only the provided indexes. Similar to Python .loc
+'       Gets either a dataframe if multiple rows/columns returned
+'       or the actual value if selecting a row and column directly.
+'       Similar to Python .loc
 '   Parameter:
 '       rows: Array (or single string) of row indexes.
 '             Passed directly to selectRows, see that procedure for more information on the expected syntax
@@ -526,7 +529,7 @@ End Function
 '   Returns:
 '       clsDataFrame with only the selected rows and columns
 '---------------------------------------------------------------------------------
-Public Function SelectVals(Optional ByVal rows As Variant, Optional ByVal cols As Variant) As clsDataFrame
+Public Function SelectVals(Optional ByVal rows As Variant, Optional ByVal cols As Variant) As Variant
     Dim rowIdxs As String
     
     If IsMissing(rows) Then
@@ -558,8 +561,14 @@ Public Function SelectVals(Optional ByVal rows As Variant, Optional ByVal cols A
         End If
     End If
     
-    Set SelectVals = Me.SelectCols(colIdxs).SelectRows(rowIdxs)
-
+    If InStr(1, rowIdxs, ":") = 0 And InStr(1, rowIdxs, ",") = 0 And _
+       InStr(1, colIdxs, ":") = 0 And InStr(1, colIdxs, ",") = 0 _
+    Then
+        SelectVals = Me.SelectCols(colIdxs).SelectRows(rowIdxs).ToArray(True)(0, 0)
+    Else
+        Set SelectVals = Me.SelectCols(colIdxs).SelectRows(rowIdxs)
+    End If
+    
 End Function
 
 '************************************************************************************************************************
@@ -648,7 +657,7 @@ Public Function DropNull(Optional ByVal arrSubset As Variant) As clsDataFrame
       
     ' If subset parameter was not entered, then drop null from all columns
     If isEmptyArray(arrSubset) Then
-        ReDim arrStrFilterNull(0 To dict_df.count - 1)
+        ReDim arrStrFilterNull(0 To dict_df.Count - 1)
         Dim col As Variant
         For Each col In dict_df.keys
             arrStrFilterNull(idx) = "'" & col & "'" & "<> Null"
@@ -2634,7 +2643,7 @@ End Function
 '       Array(row, col) w/ all data from dict
 '---------------------------------------------------------------------------------
 Private Function getArrExcel2DFromDict(ByVal dict As Scripting.Dictionary, Optional ByVal dropHeaders As Boolean = False) As Variant
-    Dim numCols As Long: numCols = dict.count
+    Dim numCols As Long: numCols = dict.Count
     If numCols = 0 Then
         getArrExcel2DFromDict = Empty
         Exit Function
@@ -2648,12 +2657,15 @@ Private Function getArrExcel2DFromDict(ByVal dict As Scripting.Dictionary, Optio
     For colIdx = 0 To numCols - 1
         arrCols(colIdx) = dict(arrColNames(colIdx))
     Next colIdx
-
-    If Not dropHeaders Then
-    Dim numRows As Long: numRows = UBound(arrCols(0)) - LBound(arrCols(0)) + 1
     
+    Dim numRows As Long: numRows = UBound(arrCols(0)) - LBound(arrCols(0)) + 1
+    Dim arrOut() As Variant
+    If dropHeaders Then
+        ' Row 0 = first row, Row 1 = second row, ... Row n = numrows
+        ReDim arrOut(0 To numRows - 1, 0 To numCols - 1)
+    Else
         ' Row 0 = headers, rows 1..numRows = data
-        Dim arrOut() As Variant: ReDim arrOut(0 To numRows, 0 To numCols - 1)
+         ReDim arrOut(0 To numRows, 0 To numCols - 1)
     
         For colIdx = 0 To numCols - 1
             arrOut(0, colIdx) = arrColNames(colIdx)
@@ -2671,7 +2683,7 @@ Private Function getArrExcel2DFromDict(ByVal dict As Scripting.Dictionary, Optio
         col = arrCols(colIdx)
         lb = LBound(col)
         For r = 0 To numRows - 1
-            arrOut(r + 1, colIdx) = col(lb + r)
+            arrOut(r + IIf(dropHeaders, 0, 1), colIdx) = col(lb + r)
         Next r
     Next colIdx
 
@@ -2820,6 +2832,5 @@ Private Function splitAtAssignment(ByVal expression As String) As Variant
     splitAtAssignment = Array(leftStr, rightStr)
     
 End Function
-
 
 
