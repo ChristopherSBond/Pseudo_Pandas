@@ -9,6 +9,7 @@ Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 '@IgnoreModule RedundantByRefModifier
 '@Folder("VBAProject")
+' VERSION 1.0.0
 Option Explicit
 ''*********************************************************************************
 '' ***   This class module contains all functionality for Pseudo_Pandas.        ***
