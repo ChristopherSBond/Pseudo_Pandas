@@ -9,7 +9,7 @@ Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 '@IgnoreModule RedundantByRefModifier
 '@Folder("VBAProject")
-' VERSION 1.0.0
+' VERSION 1.0.1
 Option Explicit
 ''*********************************************************************************
 '' ***   This class module contains all functionality for Pseudo_Pandas.        ***
@@ -138,31 +138,51 @@ End Sub
 '       Dataframes do NOT store the reference of the ranges, but the actual values of the range
 '---------------------------------------------------------------------------------
 Public Sub FromRange(ByVal rng As Range, Optional ByVal headers As Boolean = True)
+    FromArray rng.Value2, headers
+End Sub
+
+'************************************************************************************************************************
+' fromArray
+'   Purpose:
+'       Gets data from an array and stores in the current df object
+'   Parameters:
+'         arr2d: 2d arr storing all the data (any base works)
+'       headers: flag; True if the range includes headers
+'   Note:
+'       dict_df is a module-wide variable that stores all of the actual data used in the dataframe
+'       The creation of a dataframe is the process of storing the values of the range in dict_df
+'       Dataframes do NOT store the reference of the ranges, but the actual values of the range
+'---------------------------------------------------------------------------------
+Public Sub FromArray(ByRef arr2d As Variant, Optional ByVal headers As Boolean = True)
     Set dict_df = New Scripting.Dictionary
     Set dict_col_types = New Scripting.Dictionary
     
-    Dim colNum As Long
-    For colNum = 1 To rng.Columns.Count
-        Dim headerName As String
-        Dim arrColData As Variant
+    Dim numRows As Long: numRows = UBound(arr2d, 1) - LBound(arr2d, 1) + 1 - IIf(headers, 1, 0)
+    
+    Dim numCols As Long: numCols = UBound(arr2d, 2) - LBound(arr2d, 2) + 1
+    
+    Dim arrColData As Variant: ReDim arrColData(0 To numRows - 1)
+    
+    Dim lbRow As Long: lbRow = LBound(arr2d, 1)
+    Dim lbCol As Long: lbCol = LBound(arr2d, 2)
+    
+    Dim idxCol As Long
+    For idxCol = 0 To numCols - 1
+        Dim headerName As String: headerName = IIf(headers, arr2d(lbRow, lbCol + idxCol), "Col_" & idxCol + 1)
         
-        If headers = True Then
-            headerName = rng.Cells(1, colNum).Value2
-            
-            If Not isValidColumnName(headerName) Then pandasRaiseError "fromRange", PANDAS_ERROR_COL_HAS_FORBIDDEN_CHARS, headerName
-            
-            arrColData = getArr1dFromRng(rng.Cells(1, colNum).Offset(1).Resize(rng.rows.Count - 1))
-        Else
-            headerName = "Col_" & colNum
-            arrColData = getArr1dFromRng(rng.Cells(1, colNum).Resize(rng.rows.Count))
-        End If
-            
-        If dict_df.Exists(headerName) Then pandasRaiseError "fromRange", PANDAS_ERROR_COL_EXISTS_TWICE, headerName
+        If Not isValidColumnName(headerName) Then pandasRaiseError "fromArray", PANDAS_ERROR_COL_HAS_FORBIDDEN_CHARS, headerName
+                        
+        If dict_df.Exists(headerName) Then pandasRaiseError "fromArray", PANDAS_ERROR_COL_EXISTS_TWICE, headerName
+        
+        Dim idxRow As Long
+        For idxRow = 0 To numRows - 1
+            arrColData(idxRow) = arr2d(lbRow + idxRow + IIf(headers, 1, 0), lbCol + idxCol)
+        Next idxRow
         
         dict_df.Add headerName, getArrWithNormalizedMissing(arrColData)
         dict_col_types.Add headerName, getArrayDataType(arrColData)
         
-    Next colNum
+    Next idxCol
 
 End Sub
 
