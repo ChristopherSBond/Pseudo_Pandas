@@ -189,80 +189,24 @@ Public Sub test252352()
 End Sub
 
 Public Sub test42425()
-    Dim res As Variant
-    res = Widen(Sheet1.Range("S7:W46").Value2, Sheet1.Range("S6:w6"), Array(1, 3, 5), 2, 4)
- 
-    Sheet1.Range("Y6").Resize(UBound(res, 1), UBound(res, 2)).Value2 = res
- 
+    Dim df As clsDataFrame: Set df = New clsDataFrame
+    df.FromRange Sheet1.Range("S6:V46")
+    
+    df.Pivot(Array("Vehicle", "Lane"), "Impact", "Operating rating factor_min").Sort(Array("Vehicle", "Lane"), True).Head
+    
+    df.DropColumns("Impact").Head
+    
 End Sub
 
-' data: 2D 1-based array (e.g. Range.Value, without the header row)
-' headers: 1-row 2D array from Range.Value (headers(1, i))
-' idCols: Array(1, 3) -> Vehicle and Lane positions; hdrCol: 2; valCol: 4
-Public Function Widen(data As Variant, headers As Variant, idCols As Variant, _
-                      hdrCol As Long, valCol As Long) As Variant
-    Dim nIds As Long: nIds = UBound(idCols) - LBound(idCols) + 1
-    Dim nR As Long: nR = UBound(data, 1)
 
-    Dim rowKeys As Object, colKeys As Object
-    Set rowKeys = CreateObject("Scripting.Dictionary")
-    Set colKeys = CreateObject("Scripting.Dictionary")
 
-    Dim rowOf() As Long, colOf() As Long
-    ReDim rowOf(1 To nR): ReDim colOf(1 To nR)
-    Dim idParts() As Variant
-    ReDim idParts(1 To nR, 1 To nIds) ' upper bound; only first rowKeys.Count rows used
 
-    Dim r As Long, j As Long, key As String, k As String
-    For r = 1 To nR
-        ' composite row key
-        key = ""
-        For j = 0 To nIds - 1
-            key = key & CStr(data(r, idCols(LBound(idCols) + j))) & Chr(0)
-        Next j
-        If Not rowKeys.Exists(key) Then
-            rowKeys.Add key, rowKeys.Count + 1
-            For j = 0 To nIds - 1
-                idParts(rowKeys.Count, j + 1) = data(r, idCols(LBound(idCols) + j))
-            Next j
-        End If
-        rowOf(r) = rowKeys(key)
 
-        ' header key
-        k = CStr(data(r, hdrCol))
-        If Not colKeys.Exists(k) Then colKeys.Add k, colKeys.Count + 1
-        colOf(r) = colKeys(k)
-    Next r
 
-    Dim out() As Variant, filled() As Boolean
-    ReDim out(1 To rowKeys.Count + 1, 1 To nIds + colKeys.Count)
-    ReDim filled(1 To rowKeys.Count, 1 To colKeys.Count)
 
-    ' header row
-    For j = 0 To nIds - 1
-        out(1, j + 1) = headers(1, idCols(LBound(idCols) + j))
-    Next j
-    Dim kv As Variant
-    For Each kv In colKeys.keys
-        out(1, nIds + colKeys(kv)) = kv
-    Next kv
 
-    ' id columns
-    Dim i As Long
-    For i = 1 To rowKeys.Count
-        For j = 1 To nIds
-            out(i + 1, j) = idParts(i, j)
-        Next j
-    Next i
 
-    ' place values
-    For r = 1 To nR
-        If filled(rowOf(r), colOf(r)) Then
-            Err.Raise vbObjectError + 3, , "Duplicate entry at data row " & r
-        End If
-        out(rowOf(r) + 1, nIds + colOf(r)) = data(r, valCol)
-        filled(rowOf(r), colOf(r)) = True
-    Next r
 
-    Widen = out
-End Function
+
+
+

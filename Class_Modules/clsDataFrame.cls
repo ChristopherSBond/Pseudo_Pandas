@@ -9,7 +9,7 @@ Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 '@IgnoreModule RedundantByRefModifier
 '@Folder("VBAProject")
-' VERSION 1.0.1
+' VERSION 1.1
 Option Explicit
 ''*********************************************************************************
 '' ***   This class module contains all functionality for Pseudo_Pandas.        ***
@@ -41,6 +41,11 @@ Private Enum errors
     PANDAS_ERROR_ROW_NOT_NUM
     PANDAS_ERROR_AGG_FUNC_NOT_EXIST
     PANDAS_ERROR_FILE_NOT_FOUND
+    PANDAS_ERROR_PIVOT_BLANK_ID_COL
+    PANDAS_ERROR_PIVOT_ID_SAME_AS_NAME
+    PANDAS_ERROR_PIVOT_MISSING_ROW_VAL
+    PANDAS_ERROR_PIVOT_DUPLICATE_IDS
+    PANDAS_ERROR_SORT_ASCENDING_MISMATCH
 End Enum
 
 Private Enum rpnOp
@@ -268,7 +273,7 @@ End Function
 '   Returns:
 '       Dataframe with the dropped columns
 '---------------------------------------------------------------------------------
-Public Function DropColumns(ByVal columnsToDrop As Variant) As clsDataFrame
+Public Function DropColumns(ByRef columnsToDrop As Variant) As clsDataFrame
     Dim newDict As Scripting.Dictionary: Set newDict = getDictCopy(dict_df)
     
     If isEmptyArray(columnsToDrop) Then
@@ -357,11 +362,11 @@ Public Function SelectCols(ParamArray colIdxs() As Variant) As clsDataFrame
     ' Parse each of the inputs with the following options in addition to selecting the column numbers entered directly as paras
     '   ":" means to select a continuous range of columns
     '   "," means to select each single column
-    Dim colIdx As Variant
-    For Each colIdx In colIdxs
-        If InStr(1, colIdx, ":") Then
-            Dim firstCol As Variant: firstCol = split(colIdx, ":")(0)
-            Dim lastCol As Variant: lastCol = split(colIdx, ":")(1)
+    Dim colidx As Variant
+    For Each colidx In colIdxs
+        If InStr(1, colidx, ":") Then
+            Dim firstCol As Variant: firstCol = split(colidx, ":")(0)
+            Dim lastCol As Variant: lastCol = split(colidx, ":")(1)
             
             If Not IsNumeric(firstCol) Then
                 If dict_df.Exists(firstCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, firstCol
@@ -378,14 +383,14 @@ Public Function SelectCols(ParamArray colIdxs() As Variant) As clsDataFrame
             
             arrSelectedColIdxs = getMergedArr(arrSelectedColIdxs, arrRngBtNums)
         
-        ElseIf InStr(1, colIdx, ",") Then
-            arrSelectedColIdxs = getMergedArr(arrSelectedColIdxs, split(colIdx, ","))
+        ElseIf InStr(1, colidx, ",") Then
+            arrSelectedColIdxs = getMergedArr(arrSelectedColIdxs, split(colidx, ","))
         
-        ElseIf colIdx <> vbNullString Then
-            arrSelectedColIdxs = getMergedArr(arrSelectedColIdxs, Array(colIdx))
+        ElseIf colidx <> vbNullString Then
+            arrSelectedColIdxs = getMergedArr(arrSelectedColIdxs, Array(colidx))
         
         End If
-    Next colIdx
+    Next colidx
     
     ' Dict later used to create the df
     Dim dict As Scripting.Dictionary: Set dict = New Scripting.Dictionary
@@ -500,9 +505,9 @@ Public Function SelectRows(ParamArray rowIdxs() As Variant) As clsDataFrame
     If minIdx < 0 Then pandasRaiseError "selectRows", PANDAS_ERROR_SELECTED_ROW_OUT_OF_BOUNDS, minIdx
     If maxIdx > Me.Shape(0) - 1 Then pandasRaiseError "selectRows", PANDAS_ERROR_SELECTED_ROW_OUT_OF_BOUNDS, maxIdx
     
-    Dim colIdx As Long
-    For colIdx = LBound(arrDictKeys) To UBound(arrDictKeys)
-        Dim arrCol As Variant: arrCol = dict_df(arrDictKeys(colIdx))
+    Dim colidx As Long
+    For colidx = LBound(arrDictKeys) To UBound(arrDictKeys)
+        Dim arrCol As Variant: arrCol = dict_df(arrDictKeys(colidx))
         Dim newArrCol As Variant: ReDim newArrCol(0 To countIdxs - 1)
         Dim idx As Long
         
@@ -510,8 +515,8 @@ Public Function SelectRows(ParamArray rowIdxs() As Variant) As clsDataFrame
             newArrCol(idx) = arrCol(arrSelectedRowIdxs(idx))
         Next idx
         
-        newDict(arrDictKeys(colIdx)) = newArrCol
-    Next colIdx
+        newDict(arrDictKeys(colidx)) = newArrCol
+    Next colidx
 
 endFunct:
     'Create the new df and return it
@@ -729,14 +734,15 @@ nextRow:
     Set DropDuplicates = SelectRows(Join(arrUniqueIdxs, ","))
 End Function
 
-Public Function Sort(ByVal colName As String, Optional ByVal ascending As Boolean = True) As clsDataFrame
+' Sort will automatically be ascending, to adjust pass an array for each filter placed on the columns
+Public Function Sort(ByVal colNames As Variant, Optional ByVal ascending As Variant = True) As clsDataFrame
     Dim dict As Scripting.Dictionary: Set dict = New Scripting.Dictionary
     Dim col As Variant
     For Each col In dict_df
         dict(col) = dict_df(col)
     Next col
     
-    sortDictByColumn dict, colName, ascending:=ascending
+    sortDictByColumns dict, colNames, ascending:=ascending
     
     Dim newDf As clsDataFrame: Set newDf = New clsDataFrame
     
@@ -746,6 +752,130 @@ Public Function Sort(ByVal colName As String, Optional ByVal ascending As Boolea
     
 End Function
 
+Public Function Pivot(ByRef idCols As Variant, ByVal namesFrom As String, ByVal valsFrom As String) As clsDataFrame
+    Dim r As Long, j As Long, c As Long, i As Long
+
+    ' Validate inputs
+    If Not dict_df.Exists(namesFrom) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, namesFrom
+    If Not dict_df.Exists(valsFrom) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, valsFrom
+
+    ' Normalize idCols to a list of names
+    Dim idNames() As String, nIds As Long
+    If IsArray(idCols) Then
+        nIds = UBound(idCols) - LBound(idCols) + 1
+        If nIds < 1 Then pandasRaiseError "Pivot", PANDAS_ERROR_PIVOT_BLANK_ID_COL
+        
+        ReDim idNames(0 To nIds - 1)
+        For j = 0 To nIds - 1
+            idNames(j) = CStr(idCols(LBound(idCols) + j))
+        Next j
+    Else
+        nIds = 1
+        ReDim idNames(0 To 0)
+        idNames(0) = CStr(idCols)
+    End If
+
+    For j = 0 To nIds - 1
+        If Not dict_df.Exists(idNames(j)) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, idNames(j)
+        If idNames(j) = namesFrom Or idNames(j) = valsFrom Then
+            pandasRaiseError "Pivot", PANDAS_ERROR_PIVOT_ID_SAME_AS_NAME, idNames(j)
+        End If
+    Next j
+
+    ' Pull each column once into locals (avoids repeated dictionary copies)
+    Dim arrNames As Variant: arrNames = dict_df(namesFrom)
+    Dim arrVals As Variant: arrVals = dict_df(valsFrom)
+    Dim arrIds() As Variant: ReDim arrIds(0 To nIds - 1)
+    For j = 0 To nIds - 1
+        arrIds(j) = dict_df(idNames(j))
+    Next j
+
+    Dim numRows As Long: numRows = Me.Shape(0)
+
+    ' Pass 1: assign each source row an output row and column
+    Dim rowPos As Scripting.Dictionary: Set rowPos = New Scripting.Dictionary
+    Dim colPos As Scripting.Dictionary: Set colPos = New Scripting.Dictionary
+
+    Dim rowOf() As Long, colOf() As Long, firstRowOf() As Long
+    If numRows > 0 Then
+        ReDim rowOf(0 To numRows - 1)
+        ReDim colOf(0 To numRows - 1)
+        ReDim firstRowOf(0 To numRows - 1)
+    End If
+
+    Dim key As String, hdr As String, v As Variant
+
+    For r = 0 To numRows - 1
+        ' Composite row key (Chr(0) can't realistically appear in the data)
+        key = vbNullString
+        For j = 0 To nIds - 1
+            v = arrIds(j)(r)
+            If IsError(v) Then
+                key = key & "#ERR" & Chr(0)
+            ElseIf IsNull(v) Or IsEmpty(v) Then
+                key = key & Chr(1) & Chr(0) ' distinct token for missing
+            Else
+                key = key & CStr(v) & Chr(0)
+            End If
+        Next j
+
+        If Not rowPos.Exists(key) Then
+            firstRowOf(rowPos.Count) = r
+            rowPos.Add key, rowPos.Count
+        End If
+        rowOf(r) = rowPos(key)
+
+        ' header value
+        v = arrNames(r)
+        If IsError(v) Or IsNull(v) Or IsEmpty(v) Then
+            pandasRaiseError "Pivot", PANDAS_ERROR_PIVOT_MISSING_ROW_VAL, namesFrom
+        End If
+        hdr = CStr(v)
+        If Not colPos.Exists(hdr) Then colPos.Add hdr, colPos.Count
+        colOf(r) = colPos(hdr)
+    Next r
+
+    Dim nOut As Long: nOut = rowPos.Count
+    Dim nHdr As Long: nHdr = colPos.Count
+
+    ' Build the output array (row 1 = headers)
+    Dim out() As Variant: ReDim out(1 To nOut + 1, 1 To nIds + nHdr)
+
+    ' id column headers
+    For j = 0 To nIds - 1
+        out(1, j + 1) = idNames(j)
+    Next j
+
+    ' new column headers (in first-appearance order)
+    Dim hk As Variant
+    For Each hk In colPos.keys
+        out(1, nIds + colPos(hk) + 1) = CStr(hk)
+    Next hk
+
+    ' id values, taken from the first source row of each group
+    For i = 0 To nOut - 1
+        For j = 0 To nIds - 1
+            out(i + 2, j + 1) = arrIds(j)(firstRowOf(i))
+        Next j
+    Next i
+
+    ' Pass 2: place values, detecting duplicates
+    Dim filled() As Boolean
+    If nOut > 0 And nHdr > 0 Then ReDim filled(0 To nOut - 1, 0 To nHdr - 1)
+
+    For r = 0 To numRows - 1
+        i = rowOf(r): c = colOf(r)
+        If filled(i, c) Then
+            pandasRaiseError "Pivot", PANDAS_ERROR_PIVOT_DUPLICATE_IDS, out(1, nIds + c + 1)
+        End If
+        out(i + 2, nIds + c + 1) = arrVals(r)
+        filled(i, c) = True
+    Next r
+
+    Dim newDf As clsDataFrame: Set newDf = New clsDataFrame
+    newDf.FromArray out
+    Set Pivot = newDf
+End Function
 
 Public Function Unique(ByVal colName As String) As Variant
     If Not dict_df.Exists(colName) Then pandasRaiseError "unique", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
@@ -898,7 +1028,7 @@ End Function
 '---------------------------------------------------------------------------------
 Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As String, ByVal aggFuncs As Variant) As clsDataFrame
     Dim colName As Variant
-    Dim colIdx As Long
+    Dim colidx As Long
     Dim rowIdx As Long
     
     Dim numCols As Long
@@ -913,8 +1043,8 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
         
         ReDim keyNames(0 To numCols - 1)
         For Each colName In groupByCols
-            keyNames(colIdx) = CStr(colName)
-            colIdx = colIdx + 1
+            keyNames(colidx) = CStr(colName)
+            colidx = colidx + 1
         Next colName
         
     Else
@@ -932,12 +1062,12 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
     
     Dim dict_dfNullFree As Scripting.Dictionary: Set dict_dfNullFree = dfNullFree.ToDict
     
-    For colIdx = 0 To numCols - 1
-        If Not dict_dfNullFree.Exists(keyNames(colIdx)) Then pandasRaiseError "groupByAgg", PANDAS_ERROR_COL_NAME_NOT_EXISTS, keyNames(colIdx)
+    For colidx = 0 To numCols - 1
+        If Not dict_dfNullFree.Exists(keyNames(colidx)) Then pandasRaiseError "groupByAgg", PANDAS_ERROR_COL_NAME_NOT_EXISTS, keyNames(colidx)
         
-        arrColData(colIdx) = dict_dfNullFree(keyNames(colIdx))
+        arrColData(colidx) = dict_dfNullFree(keyNames(colidx))
     
-    Next colIdx
+    Next colidx
     
     If Not dict_dfNullFree.Exists(colToMeasure) Then pandasRaiseError "groupByAgg", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colToMeasure
     Dim colDataToMeasure As Variant: colDataToMeasure = dict_dfNullFree(colToMeasure)
@@ -951,8 +1081,8 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
     ' One string key per row
     Dim rowKey() As String: ReDim rowKey(0 To numRows - 1)
 
-    For colIdx = 0 To numCols - 1
-        Dim arrCurrCol As Variant: arrCurrCol = arrColData(colIdx)
+    For colidx = 0 To numCols - 1
+        Dim arrCurrCol As Variant: arrCurrCol = arrColData(colidx)
         Dim lbCol As Long: lbCol = LBound(arrCurrCol)
         Dim piece As String
 
@@ -961,7 +1091,7 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
             
             If VarType(v) <= vbNull Then piece = Chr$(30) Else piece = CStr(v)
             
-            If colIdx = 0 Then
+            If colidx = 0 Then
                 rowKey(rowIdx) = piece
             Else
                 rowKey(rowIdx) = rowKey(rowIdx) & Chr$(31) & piece
@@ -969,7 +1099,7 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
             
         Next rowIdx
         
-    Next colIdx
+    Next colidx
 
     ' Assign group ids; remember each group's first row
     Dim rowGroupId() As Long: ReDim rowGroupId(0 To numRows - 1)
@@ -1026,8 +1156,8 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
     Dim groupIdx As Long
     
     Dim result As Scripting.Dictionary: Set result = New Scripting.Dictionary
-    For colIdx = 0 To numCols - 1
-        Dim src As Variant: src = arrColData(colIdx)
+    For colidx = 0 To numCols - 1
+        Dim src As Variant: src = arrColData(colidx)
         Dim keyOut() As Variant: ReDim keyOut(0 To countGroups - 1)
 
         lbCol = LBound(src)
@@ -1037,8 +1167,8 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
             keyOut(groupIdx) = src(lbCol + firstRow(groupIdx))
         Next groupIdx
         
-        result(keyNames(colIdx)) = keyOut
-    Next colIdx
+        result(keyNames(colidx)) = keyOut
+    Next colidx
 
     Dim aggOut() As Variant: ReDim aggOut(0 To countGroups - 1)
     
@@ -1247,6 +1377,21 @@ Private Function pandasGetErrorInfo(ByVal procedureName As String, ByVal errID A
         
         Case PANDAS_ERROR_FILE_NOT_FOUND
             errDescription = "File not found at path " & "'" & additionalComment & "'"
+        
+        Case PANDAS_ERROR_PIVOT_BLANK_ID_COL
+            errDescription = "At least one id column is required for pivot."
+        
+        Case PANDAS_ERROR_PIVOT_ID_SAME_AS_NAME
+            errDescription = "Id column '" & additionalComment & "' cannot also be the names/values column."
+        
+        Case PANDAS_ERROR_PIVOT_MISSING_ROW_VAL
+            errDescription = "Missing value in column '" & additionalComment & "."
+        
+        Case PANDAS_ERROR_PIVOT_DUPLICATE_IDS
+            errDescription = "Duplicate entry for id combination and '" & additionalComment & "'."
+        
+        Case PANDAS_ERROR_SORT_ASCENDING_MISMATCH
+            errDescription = "Ascending must have one entry per key column!"
         
     End Select
     
@@ -2230,91 +2375,156 @@ End Function
 '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\ SORTING FUNCTIONALITY /////////////////////////////////////////////////////////////////////////////////
 '********************************************************************************************************************************************************************
 
-' Sorts a Scripting.Dictionary of {colName: 1D array} in place, ordering ALL
-' columns by the values in column `keyCol`. Uses a stable merge sort on an
-' index permutation, then applies that permutation to every column.
-Private Sub sortDictByColumn(ByVal dict As Object, ByVal keyCol As String, Optional ByVal ascending As Boolean = True)
-    If Not dict.Exists(keyCol) Then pandasRaiseError "sortDictByColumn", PANDAS_ERROR_COL_NAME_NOT_EXISTS, keyCol
-    
-    Dim keyArr As Variant: keyArr = dict(keyCol)
-    Dim lb As Long: lb = LBound(keyArr)
-    Dim n As Long: n = UBound(keyArr) - lb + 1
+' Sorts a Scripting.Dictionary of {colName: 1D array} in place, ordering ALL columns
+' by keyCols in order of importance (first = most important).
+' keyCols : a single column name (String) or an array of names
+' ascending : a single Boolean (applies to all keys) or an array of Booleans
+' (one per key, same order as keyCols)
+' Missing values (Empty/Null/Error) always sort last. The sort is stable.
+Private Sub sortDictByColumns(ByVal dict As Object, ByVal keyCols As Variant, _
+                              Optional ByVal ascending As Variant = True)
+    ' ---- Normalize keyCols to an array of names ----
+    Dim names() As String, nKeys As Long, k As Long
+    If IsArray(keyCols) Then
+        nKeys = UBound(keyCols) - LBound(keyCols) + 1
+        If nKeys < 1 Then Exit Sub
+        ReDim names(0 To nKeys - 1)
+        For k = 0 To nKeys - 1
+            names(k) = CStr(keyCols(LBound(keyCols) + k))
+        Next k
+    Else
+        nKeys = 1
+        ReDim names(0 To 0)
+        names(0) = CStr(keyCols)
+    End If
+
+    ' ---- Normalize ascending to one Boolean per key ----
+    Dim asc() As Boolean: ReDim asc(0 To nKeys - 1)
+    If IsArray(ascending) Then
+        If UBound(ascending) - LBound(ascending) + 1 <> nKeys Then
+            pandasRaiseError "sortDictByColumns", PANDAS_ERROR_SORT_ASCENDING_MISMATCH
+        End If
+        For k = 0 To nKeys - 1
+            asc(k) = CBool(ascending(LBound(ascending) + k))
+        Next k
+    Else
+        For k = 0 To nKeys - 1
+            asc(k) = CBool(ascending)
+        Next k
+    End If
+
+    ' ---- Pull each key column once (avoids repeated dictionary copies) ----
+    Dim keyArrs() As Variant: ReDim keyArrs(0 To nKeys - 1)
+    Dim lbs() As Long: ReDim lbs(0 To nKeys - 1)
+    For k = 0 To nKeys - 1
+        If Not dict.Exists(names(k)) Then
+            pandasRaiseError "sortDictByColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, names(k)
+        End If
+        keyArrs(k) = dict(names(k))
+        lbs(k) = LBound(keyArrs(k))
+    Next k
+
+    Dim n As Long: n = UBound(keyArrs(0)) - lbs(0) + 1
     If n < 2 Then Exit Sub
 
-    ' idx(i) = original (0-based) position of the item that belongs at slot i
+    ' ---- Sort an index permutation ----
     Dim idx() As Long: ReDim idx(0 To n - 1)
     Dim tmp() As Long: ReDim tmp(0 To n - 1)
-    
     Dim i As Long
     For i = 0 To n - 1: idx(i) = i: Next i
-    
-    mergeSortIdx keyArr, lb, idx, tmp, 0, n - 1, ascending
 
-    ' Apply the permutation to every column
-    Dim colName As Variant
+    mergeSortIdxMulti keyArrs, lbs, asc, idx, tmp, 0, n - 1
+
+    ' ---- Apply the permutation to every column ----
+    Dim colName As Variant, src As Variant, clb As Long
+    Dim dst() As Variant
     For Each colName In dict.keys
-        Dim src As Variant: src = dict(colName)
-        
-        Dim clb As Long: clb = LBound(src)
-        
-        Dim dst() As Variant: ReDim dst(clb To clb + n - 1)
-        
+        src = dict(colName)
+        clb = LBound(src)
+        ReDim dst(clb To clb + n - 1)
         For i = 0 To n - 1
             dst(clb + i) = src(clb + idx(i))
         Next i
-        
         dict(colName) = dst
     Next colName
 End Sub
 
-Private Sub mergeSortIdx(ByRef keys As Variant, ByVal lb As Long, ByRef idx() As Long, ByRef tmp() As Long, ByVal lo As Long, ByVal hi As Long, ByVal ascending As Boolean)
+' Top-down stable merge sort on idx(lo..hi)
+Private Sub mergeSortIdxMulti(ByRef keyArrs() As Variant, ByRef lbs() As Long, _
+                              ByRef asc() As Boolean, ByRef idx() As Long, _
+                              ByRef tmp() As Long, ByVal lo As Long, ByVal hi As Long)
     If lo >= hi Then Exit Sub
+    Dim mid As Long: mid = lo + (hi - lo) \ 2
+    mergeSortIdxMulti keyArrs, lbs, asc, idx, tmp, lo, mid
+    mergeSortIdxMulti keyArrs, lbs, asc, idx, tmp, mid + 1, hi
 
-    Dim middle As Long: middle = (lo + hi) \ 2
-    mergeSortIdx keys, lb, idx, tmp, lo, middle, ascending
-    mergeSortIdx keys, lb, idx, tmp, middle + 1, hi, ascending
+    ' Skip the merge if the halves are already in order
+    If compareRowsMulti(keyArrs, lbs, asc, idx(mid), idx(mid + 1)) <= 0 Then Exit Sub
 
     Dim i As Long: i = lo
-    Dim j As Long: j = middle + 1
-    Dim k As Long: k = lo
+    Dim j As Long: j = mid + 1
+    Dim t As Long: t = lo
 
-    Do While i <= middle And j <= hi
-        Dim c As Long: c = compareValues(keys(lb + idx(i)), keys(lb + idx(j)))
-        
-        If Not ascending Then c = -c
-        If c <= 0 Then              ' <= keeps the sort stable
-            tmp(k) = idx(i): i = i + 1
+    Do While i <= mid And j <= hi
+        ' <= 0 takes from the left on ties, which keeps the sort stable
+        If compareRowsMulti(keyArrs, lbs, asc, idx(i), idx(j)) <= 0 Then
+            tmp(t) = idx(i): i = i + 1
         Else
-            tmp(k) = idx(j): j = j + 1
+            tmp(t) = idx(j): j = j + 1
         End If
-        
-        k = k + 1
+        t = t + 1
     Loop
-    
-    Do While i <= middle: tmp(k) = idx(i): i = i + 1: k = k + 1: Loop
-    Do While j <= hi:  tmp(k) = idx(j): j = j + 1: k = k + 1: Loop
+    Do While i <= mid
+        tmp(t) = idx(i): i = i + 1: t = t + 1
+    Loop
+    Do While j <= hi
+        tmp(t) = idx(j): j = j + 1: t = t + 1
+    Loop
 
-    For k = lo To hi: idx(k) = tmp(k): Next k
+    For t = lo To hi
+        idx(t) = tmp(t)
+    Next t
 End Sub
 
-' Returns -1, 0, 1. Order: Empty/Null < numbers/dates < text (case-insensitive).
-Private Function compareValues(ByVal a As Variant, ByVal b As Variant) As Long
-    Dim ra As Long: ra = TypeRank(a)
-    Dim rb As Long: rb = TypeRank(b)
-    
-    If ra <> rb Then
-        compareValues = IIf(ra < rb, -1, 1)
-    ElseIf ra = 0 Then
-        compareValues = 0
-    ElseIf ra = 1 Then
-        If a < b Then
-            compareValues = -1
-        ElseIf a > b Then
-            compareValues = 1
+' Compares source rows a and b across all keys. Returns -1, 0 or 1.
+Private Function compareRowsMulti(ByRef keyArrs() As Variant, ByRef lbs() As Long, _
+                                  ByRef asc() As Boolean, ByVal a As Long, ByVal b As Long) As Long
+    Dim k As Long, va As Variant, vb As Variant
+    Dim missA As Boolean, missB As Boolean, c As Long
+
+    For k = 0 To UBound(keyArrs)
+        va = keyArrs(k)(lbs(k) + a)
+        vb = keyArrs(k)(lbs(k) + b)
+
+        missA = IsError(va) Or IsNull(va) Or IsEmpty(va)
+        missB = IsError(vb) Or IsNull(vb) Or IsEmpty(vb)
+
+        If missA Or missB Then
+            ' missing always last, regardless of direction
+            If missA And missB Then
+                c = 0
+            ElseIf missA Then
+                compareRowsMulti = 1: Exit Function
+            Else
+                compareRowsMulti = -1: Exit Function
+            End If
+        ElseIf VarType(va) = vbString Or VarType(vb) = vbString Then
+            c = StrComp(CStr(va), CStr(vb), vbTextCompare)
+        ElseIf va < vb Then
+            c = -1
+        ElseIf va > vb Then
+            c = 1
+        Else
+            c = 0
         End If
-    Else
-        compareValues = StrComp(CStr(a), CStr(b), vbTextCompare)
-    End If
+
+        If c <> 0 Then
+            If asc(k) Then compareRowsMulti = c Else compareRowsMulti = -c
+            Exit Function
+        End If
+    Next k
+
+    compareRowsMulti = 0
 End Function
 
 Private Function TypeRank(ByVal v As Variant) As Long
@@ -2674,10 +2884,10 @@ Private Function getArrExcel2DFromDict(ByVal dict As Scripting.Dictionary, Optio
 
     ' Cache each column once
     Dim arrCols() As Variant: ReDim arrCols(0 To numCols - 1)
-    Dim colIdx As Long
-    For colIdx = 0 To numCols - 1
-        arrCols(colIdx) = dict(arrColNames(colIdx))
-    Next colIdx
+    Dim colidx As Long
+    For colidx = 0 To numCols - 1
+        arrCols(colidx) = dict(arrColNames(colidx))
+    Next colidx
     
     Dim numRows As Long: numRows = UBound(arrCols(0)) - LBound(arrCols(0)) + 1
     Dim arrOut() As Variant
@@ -2688,9 +2898,9 @@ Private Function getArrExcel2DFromDict(ByVal dict As Scripting.Dictionary, Optio
         ' Row 0 = headers, rows 1..numRows = data
          ReDim arrOut(0 To numRows, 0 To numCols - 1)
     
-        For colIdx = 0 To numCols - 1
-            arrOut(0, colIdx) = arrColNames(colIdx)
-        Next colIdx
+        For colidx = 0 To numCols - 1
+            arrOut(0, colidx) = arrColNames(colidx)
+        Next colidx
     End If
 
     ' Headers only if there's no data. If no headers, then no data.
@@ -2700,13 +2910,13 @@ Private Function getArrExcel2DFromDict(ByVal dict As Scripting.Dictionary, Optio
     End If
 
     Dim r As Long, lb As Long, col As Variant
-    For colIdx = 0 To numCols - 1
-        col = arrCols(colIdx)
+    For colidx = 0 To numCols - 1
+        col = arrCols(colidx)
         lb = LBound(col)
         For r = 0 To numRows - 1
-            arrOut(r + IIf(dropHeaders, 0, 1), colIdx) = col(lb + r)
+            arrOut(r + IIf(dropHeaders, 0, 1), colidx) = col(lb + r)
         Next r
-    Next colIdx
+    Next colidx
 
     getArrExcel2DFromDict = arrOut
 End Function
