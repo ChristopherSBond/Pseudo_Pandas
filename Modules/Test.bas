@@ -183,9 +183,9 @@ End Sub
 
 Public Sub test252352()
     Dim df As clsDataFrame: Set df = New clsDataFrame
-'    df.FromArray Sheet1.Range("H7:J27").Value2
-    df.FromArray Sheet1.Range("H7:J27")
-    df.Head
+    df.FromRange Sheet1.Range("H7:J27")
+    df.Mutate("'D' = 'B'* 1.5 ").Head
+    
 End Sub
 
 Public Sub test42425()
@@ -195,6 +195,7 @@ Public Sub test42425()
     df2.FromRange Sheet1.Range("AC6:AF20")
     
     df1.Concat(df2).Head (20)
+    
 
 End Sub
 

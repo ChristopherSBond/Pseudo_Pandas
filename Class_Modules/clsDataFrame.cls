@@ -9,7 +9,7 @@ Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 '@IgnoreModule RedundantByRefModifier
 '@Folder("VBAProject")
-' VERSION 1.2.0
+' VERSION 1.2.1
 Option Explicit
 ''*********************************************************************************
 '' ***   This class module contains all functionality for Pseudo_Pandas.        ***
@@ -283,7 +283,7 @@ End Function
 '---------------------------------------------------------------------------------
 Public Function Columns(Optional ByVal printNames As Boolean = True) As Variant
     Columns = dict_df.keys
-    Debug.Print Join(dict_df.keys, ", ")
+    If printNames Then Debug.Print Join(dict_df.keys, ", ")
 End Function
 
 '************************************************************************************************************************
@@ -1649,12 +1649,17 @@ Private Function getArrTokenizedStr(ByVal expression As String) As Variant
        
         token = currChar
         
-        ' Adjacent characters of the same type will be lumped into its own token (e.g., ajacent numbers will be read as digits of a bigger number, not each number be its own token)
+        ' Adjacent characters of the same type will be lumped into its own token (e.g., adjacent numbers will be read as digits of a bigger number, not each number be its own token)
         Do
             currChar = mid$(expression, cIdx, 1)
             currCharType = getTokenType(currChar)
             
-            If cIdx < Len(expression) Then nextChar = mid$(expression, cIdx + 1, 1)
+            If cIdx < Len(expression) Then
+                nextChar = mid$(expression, cIdx + 1, 1)
+            Else
+                nextChar = vbNullString
+            End If
+            
             nextCharType = getTokenType(nextChar)
             
             If currCharType <> nextCharType Or currCharType = TK_PAR Then Exit Do
@@ -1829,7 +1834,7 @@ End Sub
 '       The token type code in enum tokenTypes
 '---------------------------------------------------------------------------------
 Private Function getTokenType(ByVal token As Variant) As Long
-    If IsNumeric(token) Then
+    If IsNumeric(token) Or token = "." Then
         getTokenType = TK_NUM
         Exit Function
     End If
