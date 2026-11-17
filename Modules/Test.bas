@@ -189,13 +189,13 @@ Public Sub test252352()
 End Sub
 
 Public Sub test42425()
-    Dim df As clsDataFrame: Set df = New clsDataFrame
-    df.FromRange Sheet1.Range("S6:V46")
+    Dim df1 As clsDataFrame: Set df1 = New clsDataFrame
+    df1.FromRange Sheet1.Range("X6:AA12")
+    Dim df2 As clsDataFrame: Set df2 = New clsDataFrame
+    df2.FromRange Sheet1.Range("AC6:AF20")
     
-    df.Pivot(Array("Vehicle", "Lane"), "Impact", "Operating rating factor_min").Sort(Array("Vehicle", "Lane"), True).Head
-    
-    df.DropColumns("Impact").Head
-    
+    df1.Concat(df2).Head (20)
+
 End Sub
 
 

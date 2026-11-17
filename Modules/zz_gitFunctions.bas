@@ -102,16 +102,16 @@ Private Sub exportComponentsToFolder()
         
         Select Case vbc.Type
             Case vbext_ct_StdModule ' Standard Module
-                fileName = fso.BuildPath(modFolderPath, vbc.Name) & ".bas"
+                fileName = fso.BuildPath(modFolderPath, vbc.name) & ".bas"
                 
             Case vbext_ct_ClassModule ' Class Module
-                fileName = fso.BuildPath(clsModFolderPath, vbc.Name) & ".cls"
+                fileName = fso.BuildPath(clsModFolderPath, vbc.name) & ".cls"
                 
             Case vbext_ct_MSForm ' UserForm
-                fileName = fso.BuildPath(frmFolderPath, vbc.Name) & ".frm"
+                fileName = fso.BuildPath(frmFolderPath, vbc.name) & ".frm"
                     
             Case vbext_ct_Document  ' Worksheet
-                fileName = fso.BuildPath(wsFolderPath, vbc.Name) & ".cls"
+                fileName = fso.BuildPath(wsFolderPath, vbc.name) & ".cls"
                 
             Case Else   ' Should be covered by above, but skip jic
                 GoTo nextIter
@@ -142,8 +142,8 @@ Private Sub importComponentsFromGitFolder(ByVal folderPath As String)
     
     Dim subfolder As FOLDER
     For Each subfolder In fso.GetFolder(folderPath).SubFolders
-        If subfolder.Name <> "Class_Modules" And subfolder.Name <> "Forms" And subfolder.Name <> "Modules" And _
-           subfolder.Name <> "Worksheets" Then GoTo nextIter
+        If subfolder.name <> "Class_Modules" And subfolder.name <> "Forms" And subfolder.name <> "Modules" And _
+           subfolder.name <> "Worksheets" Then GoTo nextIter
         
         importComponentsFromGitFolder subfolder.Path
 nextIter:
@@ -154,7 +154,7 @@ nextIter:
     
     Dim file As file
     For Each file In fso.GetFolder(folderPath).Files
-        If (Not file.Name Like "*gitFunctions*") And (fso.GetExtensionName(file.Name) <> "frx") Then
+        If (Not file.name Like "*gitFunctions*") And (fso.GetExtensionName(file.name) <> "frx") Then
             ThisWorkbook.VBProject.VBComponents.Import file.Path
         End If
     Next file
@@ -174,7 +174,7 @@ Private Sub deleteAllCodeInLocalFolder()
     
     Dim subfolder As FOLDER
     For Each subfolder In fso.GetFolder(gitPath).SubFolders
-        If subfolder.Name <> ".git" And subfolder.Name <> GITHUB_WB_FOLDER_NAME Then
+        If subfolder.name <> ".git" And subfolder.name <> GITHUB_WB_FOLDER_NAME Then
             Call fso.DeleteFolder(folderspec:=subfolder, force:=True) '---Force= True ignores folders (or files within folders) that have Read-Only attribute turned on.
         End If
     Next subfolder
@@ -196,7 +196,7 @@ Private Sub deleteAllVbComponents()
         
     Dim vbc As VBComponent
     For Each vbc In ThisWorkbook.VBProject.VBComponents
-        If (vbc.Name <> MODULE_NAME) And vbComponentTypes.Exists(vbc.Type) Then
+        If (vbc.name <> MODULE_NAME) And vbComponentTypes.Exists(vbc.Type) Then
             ThisWorkbook.VBProject.VBComponents.Remove vbc
         End If
     
@@ -241,7 +241,7 @@ Private Sub delWsInClassModules()
     Dim vbc As VBComponent
     For Each vbc In ThisWorkbook.VBProject.VBComponents
     
-        If vbc.Type = vbext_ct_ClassModule And (left$(vbc.Name, 2) = "sh" Or left$(vbc.Name, 12) = "ThisWorkbook") Then
+        If vbc.Type = vbext_ct_ClassModule And (left$(vbc.name, 2) = "sh" Or left$(vbc.name, 12) = "ThisWorkbook") Then
             ThisWorkbook.VBProject.VBComponents.Remove vbc
         End If
     Next vbc

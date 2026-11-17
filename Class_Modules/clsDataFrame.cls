@@ -9,7 +9,7 @@ Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 '@IgnoreModule RedundantByRefModifier
 '@Folder("VBAProject")
-' VERSION 1.1
+' VERSION 1.2.0
 Option Explicit
 ''*********************************************************************************
 '' ***   This class module contains all functionality for Pseudo_Pandas.        ***
@@ -46,6 +46,10 @@ Private Enum errors
     PANDAS_ERROR_PIVOT_MISSING_ROW_VAL
     PANDAS_ERROR_PIVOT_DUPLICATE_IDS
     PANDAS_ERROR_SORT_ASCENDING_MISMATCH
+    PANDAS_ERROR_CONCAT_INVALID_AXIS
+    PANDAS_ERROR_CONCAT_INVALID_JOIN
+    PANDAS_ERROR_CONCAT_NO_COLUMNS
+    PANDAS_ERROR_CONCAT_UNEQUAL_ROWS
 End Enum
 
 Private Enum rpnOp
@@ -97,6 +101,25 @@ Private Enum aggOp
     AGG_MAX
     AGG_COUNT
 End Enum
+
+Public Enum joinTypes
+    JOIN_INNER = 0
+    JOIN_OUTER
+End Enum
+
+Public Enum axisTypes
+    AXIS_ROW = 0
+    AXIS_COLUMN
+End Enum
+
+Public Function HasColumn(ByVal colName As String) As Boolean
+    HasColumn = dict_df.Exists(colName)
+End Function
+
+Public Function ColumnData(ByVal colName As String) As Variant
+    If Not dict_df.Exists(colName) Then pandasRaiseError "ColumnData", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
+    ColumnData = dict_df(colName)
+End Function
 
 '************************************************************************************************************************
 ' fromDict
@@ -177,7 +200,7 @@ Public Sub FromArray(ByRef arr2d As Variant, Optional ByVal headers As Boolean =
         
         If Not isValidColumnName(headerName) Then pandasRaiseError "fromArray", PANDAS_ERROR_COL_HAS_FORBIDDEN_CHARS, headerName
                         
-        If dict_df.Exists(headerName) Then pandasRaiseError "fromArray", PANDAS_ERROR_COL_EXISTS_TWICE, headerName
+        If HasColumn(headerName) Then pandasRaiseError "fromArray", PANDAS_ERROR_COL_EXISTS_TWICE, headerName
         
         Dim idxRow As Long
         For idxRow = 0 To numRows - 1
@@ -207,7 +230,6 @@ End Sub
 
 Public Function ToArray(Optional ByVal dropHeaders As Boolean = False) As Variant
     Dim arr2d As Variant: arr2d = getArrExcel2DFromDict(dict_df, dropHeaders)
-        
     ToArray = arr2d
 End Function
 
@@ -259,7 +281,7 @@ End Function
 '   Returns:
 '       Array(colName1, colName2, ... colNamen) of the dataframe
 '---------------------------------------------------------------------------------
-Public Function Columns() As Variant
+Public Function Columns(Optional ByVal printNames As Boolean = True) As Variant
     Columns = dict_df.keys
     Debug.Print Join(dict_df.keys, ", ")
 End Function
@@ -277,12 +299,12 @@ Public Function DropColumns(ByRef columnsToDrop As Variant) As clsDataFrame
     Dim newDict As Scripting.Dictionary: Set newDict = getDictCopy(dict_df)
     
     If isEmptyArray(columnsToDrop) Then
-        If dict_df.Exists(columnsToDrop) Then newDict.Remove columnsToDrop
+        If Me.HasColumn(columnsToDrop) Then newDict.Remove columnsToDrop
     
     Else
         Dim idx As Long
         For idx = LBound(columnsToDrop) To UBound(columnsToDrop)
-            If dict_df.Exists(columnsToDrop(idx)) Then newDict.Remove columnsToDrop(idx)
+            If Me.HasColumn(columnsToDrop(idx)) Then newDict.Remove columnsToDrop(idx)
         Next idx
     End If
     
@@ -321,9 +343,9 @@ Public Function RenameColumns(ByVal originalColNames As Variant, ByVal newColNam
         
         Dim idx As Long
         For idx = 0 To numCols - 1
-            If Not dict_df.Exists(originalColNames(idx + lbOrig)) Then pandasRaiseError "renameColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, originalColNames(idx + lbOrig)
+            If Not Me.HasColumn(originalColNames(idx + lbOrig)) Then pandasRaiseError "renameColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, originalColNames(idx + lbOrig)
             
-            If dict_df.Exists(newColNames(idx + lbNew)) Or newDict.Exists(newColNames(idx + lbNew)) Then
+            If Me.HasColumn(newColNames(idx + lbNew)) Or newDict.Exists(newColNames(idx + lbNew)) Then
                 pandasRaiseError "renameColumns", PANDAS_ERROR_COL_EXISTS_TWICE, "'" & newColNames(idx + lbNew) & "' already exists in dataframe"
             End If
             
@@ -331,9 +353,9 @@ Public Function RenameColumns(ByVal originalColNames As Variant, ByVal newColNam
         Next idx
     
     Else
-        If Not dict_df.Exists(originalColNames) Then pandasRaiseError "renameColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, originalColNames
+        If Not Me.HasColumn(originalColNames) Then pandasRaiseError "renameColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, originalColNames
         
-        If dict_df.Exists(newColNames) Then pandasRaiseError "renameColumns", PANDAS_ERROR_COL_EXISTS_TWICE, "'" & newColNames & "' already exists in dataframe"
+        If Me.HasColumn(newColNames) Then pandasRaiseError "renameColumns", PANDAS_ERROR_COL_EXISTS_TWICE, "'" & newColNames & "' already exists in dataframe"
 
         newDict.key(originalColNames) = newColNames
     End If
@@ -369,9 +391,9 @@ Public Function SelectCols(ParamArray colIdxs() As Variant) As clsDataFrame
             Dim lastCol As Variant: lastCol = split(colidx, ":")(1)
             
             If Not IsNumeric(firstCol) Then
-                If dict_df.Exists(firstCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, firstCol
+                If Me.HasColumn(firstCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, firstCol
                 
-                If dict_df.Exists(lastCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, lastCol
+                If Me.HasColumn(lastCol) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, lastCol
                 
                 ' Get the index of the header instead of the column name
                 firstCol = getIndexOfDictKey(dict_df, firstCol)
@@ -405,7 +427,7 @@ Public Function SelectCols(ParamArray colIdxs() As Variant) As clsDataFrame
             dict(dict_df.keys(col)) = dict_df(dict_df.keys(col))
              
         Else
-            If Not dict_df.Exists(col) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, col
+            If Not Me.HasColumn(col) Then pandasRaiseError "selectCols", PANDAS_ERROR_COL_NAME_NOT_EXISTS, col
         
             dict(col) = dict_df(col)
         
@@ -677,6 +699,15 @@ nextCol:
     Set Tail = dfNew
 End Function
 
+'************************************************************************************************************************
+' DropNull
+'   Purpose:
+'       Gets and debug.prints a dataframe only including the last numRows rows
+'   Parameter:
+'       numRows: number of rows to include in the returned/printed dataframe
+'   Returns:
+'       clsDataFrame with only the last numRows rows
+'---------------------------------------------------------------------------------
 Public Function DropNull(Optional ByVal arrSubset As Variant) As clsDataFrame
     Dim arrStrFilterNull As Variant
     Dim idx As Long
@@ -712,7 +743,7 @@ Public Function DropNull(Optional ByVal arrSubset As Variant) As clsDataFrame
 End Function
 
 Public Function DropDuplicates(ByVal colName As String) As clsDataFrame
-    If Not dict_df.Exists(colName) Then pandasRaiseError "dropDuplicates", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
+    If Not Me.HasColumn(colName) Then pandasRaiseError "dropDuplicates", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
     
     Dim arrCol As Variant: arrCol = dict_df(colName)
     
@@ -753,11 +784,14 @@ Public Function Sort(ByVal colNames As Variant, Optional ByVal ascending As Vari
 End Function
 
 Public Function Pivot(ByRef idCols As Variant, ByVal namesFrom As String, ByVal valsFrom As String) As clsDataFrame
-    Dim r As Long, j As Long, c As Long, i As Long
+    Dim r As Long
+    Dim j As Long
+    Dim c As Long
+    Dim i As Long
 
     ' Validate inputs
-    If Not dict_df.Exists(namesFrom) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, namesFrom
-    If Not dict_df.Exists(valsFrom) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, valsFrom
+    If Not Me.HasColumn(namesFrom) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, namesFrom
+    If Not Me.HasColumn(valsFrom) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, valsFrom
 
     ' Normalize idCols to a list of names
     Dim idNames() As String, nIds As Long
@@ -776,7 +810,7 @@ Public Function Pivot(ByRef idCols As Variant, ByVal namesFrom As String, ByVal 
     End If
 
     For j = 0 To nIds - 1
-        If Not dict_df.Exists(idNames(j)) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, idNames(j)
+        If Not Me.HasColumn(idNames(j)) Then pandasRaiseError "Pivot", PANDAS_ERROR_COL_NAME_NOT_EXISTS, idNames(j)
         If idNames(j) = namesFrom Or idNames(j) = valsFrom Then
             pandasRaiseError "Pivot", PANDAS_ERROR_PIVOT_ID_SAME_AS_NAME, idNames(j)
         End If
@@ -878,7 +912,7 @@ Public Function Pivot(ByRef idCols As Variant, ByVal namesFrom As String, ByVal 
 End Function
 
 Public Function Unique(ByVal colName As String) As Variant
-    If Not dict_df.Exists(colName) Then pandasRaiseError "unique", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
+    If Not Me.HasColumn(colName) Then pandasRaiseError "unique", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
        
     Dim dict As Scripting.Dictionary: Set dict = New Scripting.Dictionary
     
@@ -996,6 +1030,129 @@ Public Function Mutate(ByVal expression As String) As clsDataFrame
     Dim newDf As clsDataFrame: Set newDf = New clsDataFrame
     newDf.FromDict newDict, nullNormalized:=True
     Set Mutate = newDf
+End Function
+
+' others : a DataFrame, or an array of DataFrames, appended after Me
+' axis : 0 = stack rows, 1 = place columns side by side
+' joinType : "outer" (union of columns) or "inner" (columns common to all); axis 0 only
+' Columns missing from a frame are left blank, so FromArray normalizes them as missing.
+Public Function Concat(ByRef others As Variant, Optional ByVal axis As axisTypes = AXIS_ROW, Optional ByVal joinType As joinTypes = JOIN_OUTER) As clsDataFrame
+    Dim f As Long
+    Dim c As Long
+    Dim r As Long
+    Dim k As Long
+
+    ' Collect frames: Me first, then others
+    Dim frames() As clsDataFrame
+    Dim nF As Long
+    If IsArray(others) Then
+        nF = UBound(others) - LBound(others) + 2
+        ReDim frames(0 To nF - 1)
+        Set frames(0) = Me
+        For f = 1 To nF - 1
+            Set frames(f) = others(LBound(others) + f - 1)
+        Next f
+    Else
+        nF = 2
+        ReDim frames(0 To 1)
+        Set frames(0) = Me
+        Set frames(1) = others
+    End If
+
+    If axis <> AXIS_ROW And axis <> AXIS_COLUMN Then pandasRaiseError "Concat", PANDAS_ERROR_CONCAT_INVALID_AXIS
+    Dim jt As String: jt = LCase$(joinType)
+    If jt <> JOIN_INNER And jt <> JOIN_OUTER Then pandasRaiseError "Concat", PANDAS_ERROR_CONCAT_INVALID_JOIN
+
+    Dim out() As Variant
+    Dim names As Variant, arr As Variant, lb As Long, n As Long
+
+    If axis = AXIS_ROW Then
+        ' Build output column list in first-appearance order
+        Dim colPos As Scripting.Dictionary: Set colPos = New Scripting.Dictionary
+        Dim nm As Variant
+        For f = 0 To nF - 1
+            names = frames(f).Columns(printNames:=False)
+            For Each nm In names
+                If Not colPos.Exists(CStr(nm)) Then colPos.Add CStr(nm), 0
+            Next nm
+        Next f
+
+        Dim colList() As String, nCols As Long
+        ReDim colList(0 To colPos.Count - 1)
+        For Each nm In colPos.keys
+            Dim keep As Boolean: keep = True
+            If jt = JOIN_INNER Then
+                For f = 0 To nF - 1
+                    If Not frames(f).HasColumn(CStr(nm)) Then keep = False: Exit For
+                Next f
+            End If
+            If keep Then colList(nCols) = CStr(nm): nCols = nCols + 1
+        Next nm
+        If nCols = 0 Then pandasRaiseError "Concat", PANDAS_ERROR_CONCAT_NO_COLUMNS
+
+        ' Total rows
+        Dim total As Long
+        For f = 0 To nF - 1
+            total = total + frames(f).Shape(0)
+        Next f
+
+        ReDim out(1 To total + 1, 1 To nCols)
+        
+        For c = 0 To nCols - 1
+            out(1, c + 1) = colList(c)
+        Next c
+
+        ' Copy each column of each frame once
+        Dim offset As Long: offset = 0
+        For f = 0 To nF - 1
+            n = frames(f).Shape(0)
+            If n <= 0 Then GoTo nextF
+            
+            For c = 0 To nCols - 1
+                If frames(f).HasColumn(colList(c)) Then
+                    arr = frames(f).ColumnData(colList(c))
+                    lb = LBound(arr)
+                    For r = 0 To n - 1
+                        out(offset + r + 2, c + 1) = arr(lb + r)
+                    Next r
+                End If
+            Next c
+nextF:
+        offset = offset + n
+        Next f
+
+    Else
+        ' axis = AXIS_COLUMN: row counts must match (no index to align on)
+        n = frames(0).Shape(0)
+        Dim totalCols As Long
+        For f = 0 To nF - 1
+            If frames(f).Shape(0) <> n Then
+                pandasRaiseError "Concat", PANDAS_ERROR_CONCAT_UNEQUAL_ROWS
+            End If
+            totalCols = totalCols + UBound(frames(f).Columns(printNames:=False)) - LBound(frames(f).Columns(printNames:=False)) + 1
+        Next f
+        If totalCols = 0 Then pandasRaiseError "Concat", PANDAS_ERROR_CONCAT_NO_COLUMNS
+
+        ReDim out(1 To n + 1, 1 To totalCols)
+        k = 0
+        For f = 0 To nF - 1
+            names = frames(f).Columns(printNames:=False)
+            For Each nm In names
+                k = k + 1
+                out(1, k) = CStr(nm)
+                arr = frames(f).ColumnData(CStr(nm))
+                lb = LBound(arr)
+                For r = 0 To n - 1
+                    out(r + 2, k) = arr(lb + r)
+                Next r
+            Next nm
+        Next f
+        ' duplicate column names are caught by FromArray (COL_EXISTS_TWICE)
+    End If
+
+    Dim result As clsDataFrame: Set result = New clsDataFrame
+    result.FromArray out, True
+    Set Concat = result
 End Function
 
 '************************************************************************************************************************
@@ -1147,7 +1304,6 @@ Public Function GroupByAgg(ByVal groupByCols As Variant, ByVal colToMeasure As S
 
     Dim aggIdx As Long
     For aggIdx = 0 To numAggFuncs - 1
-    
         If getAggFunctionCode(arrAggFuncs(aggIdx)) = AGG_UNK Then pandasRaiseError "groupByAgg", PANDAS_ERROR_AGG_FUNC_NOT_EXIST, arrAggFuncs(aggIdx)
         aggResults(aggIdx) = applyAgg(rowGroupId, colDataToMeasure, countGroups, getAggFunctionCode(arrAggFuncs(aggIdx)))
     Next aggIdx
@@ -1392,6 +1548,18 @@ Private Function pandasGetErrorInfo(ByVal procedureName As String, ByVal errID A
         
         Case PANDAS_ERROR_SORT_ASCENDING_MISMATCH
             errDescription = "Ascending must have one entry per key column!"
+        
+        Case PANDAS_ERROR_CONCAT_INVALID_AXIS
+            errDescription = "axis must be 0 (AXIS_ROW) or 1 (AXIS_COLUMN)."
+            
+        Case PANDAS_ERROR_CONCAT_INVALID_JOIN
+            errDescription = "joinType must be 'outer' or 'inner'."
+       
+        Case PANDAS_ERROR_CONCAT_NO_COLUMNS
+            errDescription = "No columns to concatenate."
+            
+        Case PANDAS_ERROR_CONCAT_UNEQUAL_ROWS
+            errDescription = "All frames must have the same number of rows for axis =1."
         
     End Select
     
@@ -1834,7 +2002,7 @@ Private Function evalRpnColumns(ByRef arrRpnExpression As Variant, ByVal n As Lo
             ' Column names are enclosed with (')
             colName = mid$(token, 2, Len(token) - 2)
             
-            If Not dict_df.Exists(colName) Then pandasRaiseError "evalRpnColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
+            If Not Me.HasColumn(colName) Then pandasRaiseError "evalRpnColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
             
             stack(sp) = dict_df(colName)
             
@@ -2959,11 +3127,14 @@ Private Sub writeArrToDelimited(ByVal filePath As String, ByRef arr As Variant, 
 End Sub
 
 '************************************************************************************************************************
-' writeCSVToArray2d
+' getArr2dFromDelimited
 '   Purpose:
 '       Write the contents of a csv file to a 2D array
 '   Parameter:
-'       filePath: path to csv to create arr of
+'       filePath : path to csv to create arr of
+'       delimiter: delimiter used in the file to separate data
+'   Returns:
+'       2D array with the data stored in the delimeted file
 '---------------------------------------------------------------------------------
 Private Function getArr2dFromDelimited(ByVal filePath As String, Optional ByVal delimiter As String = ",") As Variant
     Dim fso As FileSystemObject: Set fso = New FileSystemObject
