@@ -8,8 +8,7 @@ Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 '@IgnoreModule RedundantByRefModifier
-'@Folder("VBAProject")
-' VERSION 1.2.1
+' VERSION 1.2.4
 Option Explicit
 ''*********************************************************************************
 '' ***   This class module contains all functionality for Pseudo_Pandas.        ***
@@ -119,6 +118,18 @@ End Function
 Public Function ColumnData(ByVal colName As String) As Variant
     If Not dict_df.Exists(colName) Then pandasRaiseError "ColumnData", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
     ColumnData = dict_df(colName)
+End Function
+
+Public Function getColumnIdx(ByVal colName As String) As Long
+    If Not dict_df.Exists(colName) Then pandasRaiseError "ColumnData", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
+    
+    Dim colNames As Variant: colNames = dict_df.keys()
+    Dim idx As Long
+    For idx = LBound(colNames) To UBound(colNames)
+        If colNames(idx) = colName Then
+            getColumnIdx = idx
+        End If
+    Next idx
 End Function
 
 '************************************************************************************************************************
@@ -364,6 +375,63 @@ Public Function RenameColumns(ByVal originalColNames As Variant, ByVal newColNam
     newDf.FromDict newDict
     
     Set RenameColumns = newDf
+End Function
+
+'************************************************************************************************************************
+' ReorderColumns
+'   Purpose:
+'       Reorder dataframe columns based on the order inputted
+'   Parameters:
+'       colNames: array with column names ordered as wanted.
+'       keepRest: if true, keep the remaining columns in the dataframe in their original order, appended to the end
+'                 if false, drop the columns
+'   Returns:
+'       A dataframe with the ordered column names
+'---------------------------------------------------------------------------------
+Public Function ReorderColumns(ByRef colNames As Variant, Optional ByVal keepRest As Boolean = True) As clsDataFrame
+    Dim j As Long
+    Dim n As Long
+    
+    Dim names() As String
+
+    ' Normalize input to a list of names
+    If IsArray(colNames) Then
+        n = UBound(colNames) - LBound(colNames) + 1
+        If n > 0 Then
+            ReDim names(0 To n - 1)
+            For j = 0 To n - 1
+                names(j) = CStr(colNames(LBound(colNames) + j))
+            Next j
+        End If
+    Else
+        n = 1
+        ReDim names(0 To 0)
+        names(0) = CStr(colNames)
+    End If
+
+    ' Build new dictionaries
+    Dim newDictDf As Scripting.Dictionary: Set newDictDf = New Scripting.Dictionary
+    newDictDf.CompareMode = dict_df.CompareMode
+
+    For j = 0 To n - 1
+        If Not dict_df.Exists(names(j)) Then pandasRaiseError "ReorderColumns", PANDAS_ERROR_COL_NAME_NOT_EXISTS, names(j)
+        If newDictDf.Exists(names(j)) Then pandasRaiseError "ReorderColumns", PANDAS_ERROR_COL_EXISTS_TWICE, names(j)
+        newDictDf.Add names(j), dict_df(names(j))
+    Next j
+
+    If keepRest Then
+        Dim nm As Variant
+        For Each nm In dict_df.keys
+            If Not newDictDf.Exists(CStr(nm)) Then
+                newDictDf.Add CStr(nm), dict_df(nm)
+            End If
+        Next nm
+    End If
+
+    Dim newDf As clsDataFrame: Set newDf = New clsDataFrame
+    newDf.FromDict newDictDf
+
+    Set ReorderColumns = newDf
 End Function
 
 '************************************************************************************************************************
@@ -911,7 +979,7 @@ Public Function Pivot(ByRef idCols As Variant, ByVal namesFrom As String, ByVal 
     Set Pivot = newDf
 End Function
 
-Public Function Unique(ByVal colName As String) As Variant
+Public Function Unique(ByVal colName As String, Optional ByVal printVals As Boolean = True) As Variant
     If Not Me.HasColumn(colName) Then pandasRaiseError "unique", PANDAS_ERROR_COL_NAME_NOT_EXISTS, colName
        
     Dim dict As Scripting.Dictionary: Set dict = New Scripting.Dictionary
@@ -933,7 +1001,7 @@ nextRow:
     Next row
     ReDim Preserve uniqueVals(0 To uniqueCount - 1)
     
-    Debug.Print Join(uniqueVals, ", ")
+    If printVals Then Debug.Print Join(uniqueVals, ", ")
     Unique = uniqueVals
 End Function
 
